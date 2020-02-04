@@ -1,9 +1,9 @@
 import { assert } from 'chai';
 import * as knex from 'knex';
 import { getEntities, getTableName } from '../../src';
+import { getColumnName } from '../../src/decorators';
 import { setToNull, TypedKnex, unflatten } from '../../src/typedKnex';
 import { User, UserCategory, UserSetting } from '../testEntities';
-import { getColumnName } from '../../src/decorators';
 
 describe('TypedKnexQueryBuilder', () => {
     it('should return select * from "users"', done => {
@@ -278,6 +278,90 @@ describe('TypedKnexQueryBuilder', () => {
         assert.equal(
             queryString,
             'select * from "userSettings" inner join "users" as "otherUser" on "userSettings"."user2Id" = "otherUser"."id"'
+        );
+
+        done();
+    });
+
+    it('should inner join with function with other table and primitive value', done => {
+        const typedKnex = new TypedKnex(knex({ client: 'postgresql' }));
+        const query = typedKnex
+            .query(UserSetting)
+            .innerJoinTableOnFunction('otherUser', User, join => {
+                join.onColumns(i => i.user2Id, '=', j => j.id).andOn(
+                    (c) => c.id,
+                    '=',
+                    'testValue'
+                );
+            });
+
+        const queryString = query.toQuery();
+        assert.equal(
+            queryString,
+            'select * from "userSettings" inner join "users" as "otherUser" on "userSettings"."user2Id" = "otherUser"."id" and "userSettings"."id" = "testValue"'
+        );
+
+        done();
+    });
+
+    it('should inner join with function with other table on multiple columns', done => {
+        const typedKnex = new TypedKnex(knex({ client: 'postgresql' }));
+        const query = typedKnex
+            .query(UserSetting)
+            .innerJoinTableOnFunction('otherUser', User, join => {
+                join.onColumns(i => i.user2Id, '=', j => j.id).andOn(
+                    (c) => c.initialValue,
+                    '=',
+                    (u) => u.someValue
+                );
+            });
+
+        const queryString = query.toQuery();
+        assert.equal(
+            queryString,
+            'select * from "userSettings" inner join "users" as "otherUser" on "userSettings"."user2Id" = "otherUser"."id" and "userSettings"."initialValue" = "otherUser"."someValue"'
+        );
+
+        done();
+    });
+
+    it('should inner join with function with other table and allow joined table as first argument', done => {
+        const typedKnex = new TypedKnex(knex({ client: 'postgresql' }));
+        const query = typedKnex
+            .query(UserSetting)
+            .innerJoinTableOnFunction('otherUser', User, join => {
+                join.onColumns(i => i.user2Id, '=', j => j.id).andOnJoined(
+                    (c) => c.someValue,
+                    '=',
+                    (u) => u.initialValue
+                );
+            });
+
+        const queryString = query.toQuery();
+        assert.equal(
+            queryString,
+            'select * from "userSettings" inner join "users" as "otherUser" on "userSettings"."user2Id" = "otherUser"."id" and "otherUser"."someValue" = "userSettings"."initialValue"'
+        );
+
+        done();
+    });
+
+    it('should inner join with function with other table and allow joined table as first argument in andOnJoined with primitive value as second argument', done => {
+        const typedKnex = new TypedKnex(knex({ client: 'postgresql' }));
+        const query = typedKnex
+            .query(UserSetting)
+            .innerJoinTableOnFunction('otherUser', User, join => {
+                join.onColumns(i => i.user2Id, '=', j => j.id).andOnJoined(
+                    (c) => c.someValue,
+                    '=',
+                    'testValue'
+                );
+            });
+
+        const queryString = query.toQuery();
+        assert.equal(
+            queryString,
+            'select * from "userSettings" inner join "users" as "otherUser" on "userSettings"."user2Id" = "otherUser"."id" and "otherUser"."someValue" = "testValue"'
         );
 
         done();
@@ -1206,7 +1290,7 @@ describe('TypedKnexQueryBuilder', () => {
             'element.id': null,
             'element.category.id': null,
             'unit.category.id': null,
-            'category.name': 'cat name'
+            'category.name': 'cat name',
         };
         const flattened = unflatten([result]);
         assert.isNull(flattened[0].element.id);

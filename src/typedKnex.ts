@@ -305,11 +305,29 @@ interface IJoinOnClause2<Model, JoinedModel> {
         selectColumn2Function: (
             c: TransformPropsToFunctionsReturnPropertyType<JoinedModel>
         ) => () => PropertyType2
-    ) => void;
+    ) => IJoinOnClause2<Model, JoinedModel>;
     onNull: <X>(
         selectColumn1Function: (
             c: TransformPropsToFunctionsReturnPropertyType<JoinedModel>
         ) => () => X
+    ) => void;
+    andOn: <PropertyType1, PropertyType2>(
+        selectColumn1Function: (
+            c: TransformPropsToFunctionsReturnPropertyType<Model>
+        ) => () => PropertyType1,
+        operator: Operator,
+        selectColumn2Function: ((
+            c: TransformPropsToFunctionsReturnPropertyType<JoinedModel>
+        ) => () => PropertyType2) | string | number | boolean
+    ) => void;
+    andOnJoined: <PropertyType1, PropertyType2>(
+        selectColumn1Function: (
+            c: TransformPropsToFunctionsReturnPropertyType<JoinedModel>
+        ) => () => PropertyType1,
+        operator: Operator,
+        selectColumn2Function: ((
+            c: TransformPropsToFunctionsReturnPropertyType<Model>
+        ) => () => PropertyType2) | string | number | boolean
     ) => void;
 }
 
@@ -781,7 +799,7 @@ interface IUnion<Model, SelectableModel, Row> {
 function getProxyAndMemories<ModelType, Row>(
     typedQueryBuilder?: TypedQueryBuilder<ModelType, Row>
 ) {
-    let memories = [] as string[];
+    const memories = [] as string[];
 
     function allGet(_target: any, name: any): any {
         if (name === 'memories') {
@@ -798,7 +816,7 @@ function getProxyAndMemories<ModelType, Row>(
         return new Proxy(
             {},
             {
-                get: allGet
+                get: allGet,
             }
         );
     }
@@ -806,7 +824,7 @@ function getProxyAndMemories<ModelType, Row>(
     const root = new Proxy(
         {},
         {
-            get: allGet
+            get: allGet,
         }
     );
 
@@ -843,7 +861,7 @@ function getProxyAndMemoriesForArray<ModelType, Row>(
         return new Proxy(
             {},
             {
-                get: allGet
+                get: allGet,
             }
         );
     }
@@ -851,7 +869,7 @@ function getProxyAndMemoriesForArray<ModelType, Row>(
     const root = new Proxy(
         { level: 0 },
         {
-            get: allGet
+            get: allGet,
         }
     );
 
@@ -1149,7 +1167,7 @@ class TypedQueryBuilder<ModelType, SelectableModel, Row = {}>
 
         this.extraJoinedProperties.push({
             name: newPropertyKey,
-            propertyType: newPropertyType
+            propertyType: newPropertyType,
         });
 
         const tableToJoinClass = newPropertyType;
@@ -1188,7 +1206,7 @@ class TypedQueryBuilder<ModelType, SelectableModel, Row = {}>
 
         this.extraJoinedProperties.push({
             name: newPropertyKey,
-            propertyType: newPropertyType
+            propertyType: newPropertyType,
         });
 
         const tableToJoinClass = newPropertyType;
@@ -1228,7 +1246,7 @@ class TypedQueryBuilder<ModelType, SelectableModel, Row = {}>
 
         this.queryBuilder.whereRaw(`?? ${operator} ??`, [
             column1Name,
-            column2Name
+            column2Name,
         ]);
 
         return this;
@@ -1961,39 +1979,73 @@ class TypedQueryBuilder<ModelType, SelectableModel, Row = {}>
             }
         );
 
+        const getJoinedTableColumnNameOrPrimitive = (joinedTableColumnOrPrimitive: any) => {
+            const buildJoinedTableColumnName = () => [
+                    tableToJoinAlias,
+                    this.getArgumentsFromColumnFunction(joinedTableColumnOrPrimitive),
+                ].join('.');
+
+            return typeof joinedTableColumnOrPrimitive === 'function'
+            ? buildJoinedTableColumnName()
+            : joinedTableColumnOrPrimitive;
+        };
+
+        const getSelectedTableColumnNameOrPrimitive = (selectedTableColumnOrPrimitive: any) => {
+            const buildSelectedTableColumnName = () => {
+                const selectedTableColumn = this.getArgumentsFromColumnFunction(selectedTableColumnOrPrimitive);
+                return this.getColumnName(...selectedTableColumn);
+            };
+
+            return typeof selectedTableColumnOrPrimitive === 'function'
+            ? buildSelectedTableColumnName()
+            : selectedTableColumnOrPrimitive;
+        };
+
         const onObject = {
             onColumns: (
                 column1PartsArray: any,
                 operator: any,
                 column2PartsArray: any
             ) => {
-                const column1Arguments = this.getArgumentsFromColumnFunction(
-                    column1PartsArray
-                );
-                const column2Arguments = this.getArgumentsFromColumnFunction(
-                    column2PartsArray
-                );
-                const column2ArgumentsWithJoinedTable = [
-                    tableToJoinAlias,
-                    ...column2Arguments
-                ];
                 knexOnObject.on(
-                    this.getColumnName(...column1Arguments),
+                    getSelectedTableColumnNameOrPrimitive(column1PartsArray),
                     operator,
-                    column2ArgumentsWithJoinedTable.join('.')
+                    getJoinedTableColumnNameOrPrimitive(column2PartsArray)
                 );
                 return onObject;
             },
-            onNull: (f: any) => {
-                const column2Arguments = this.getArgumentsFromColumnFunction(f);
-                const column2ArgumentsWithJoinedTable = [
-                    tableToJoinAlias,
-                    ...column2Arguments
-                ];
 
-                knexOnObject.onNull(column2ArgumentsWithJoinedTable.join('.'));
+            onNull: (f: any) => {
+                knexOnObject.onNull(getJoinedTableColumnNameOrPrimitive(f));
                 return onObject;
-            }
+            },
+
+            andOn: (
+                selectedTableColumnPartsArray: any,
+                operator: any,
+                joinedTableColumnPartsArrayOrPrimitive: any
+            ) => {
+                knexOnObject.andOn(
+                    getSelectedTableColumnNameOrPrimitive(selectedTableColumnPartsArray),
+                    operator,
+                    getJoinedTableColumnNameOrPrimitive(joinedTableColumnPartsArrayOrPrimitive)
+                );
+                return onObject;
+            },
+
+            andOnJoined: (
+                joinedTableColumnPartsArray: any,
+                operator: any,
+                selectedTableColumnPartsArrayOrPrimitive: any
+            ) => {
+
+                knexOnObject.andOn(
+                    getJoinedTableColumnNameOrPrimitive(joinedTableColumnPartsArray),
+                    operator,
+                    getSelectedTableColumnNameOrPrimitive(selectedTableColumnPartsArrayOrPrimitive)
+                );
+                return onObject;
+            },
         };
         onFunction(onObject as any);
 
